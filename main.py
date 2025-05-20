@@ -1,80 +1,68 @@
 import discord
 from discord.ext import commands
-import asyncio
 import yt_dlp
 
 intents = discord.Intents.default()
 intents.message_content = True
-
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Konfiguracja dla yt-dlp
-yt_opts = {
-    'format': 'bestaudio/best',
-    'quiet': True,
-    'no_warnings': True,
-    'default_search': 'ytsearch',
+ydl_opts = {
+    'format': 'bestaudio',
     'noplaylist': True,
-    'extract_flat': 'in_playlist'
+    'quiet': True,
+    'default_search': 'auto'
 }
 
-FFMPEG_OPTIONS = {
+ffmpeg_options = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
     'options': '-vn'
 }
 
-
 @bot.event
 async def on_ready():
-    print(f'Zalogowano jako {bot.user}')
+    print(f'Zalogowano jako {bot.user.name}')
 
-
-@bot.command(name='join')
+@bot.command()
 async def join(ctx):
     if ctx.author.voice:
         channel = ctx.author.voice.channel
         await channel.connect()
-        await ctx.send("Dołączyłem do kanału głosowego.")
     else:
-        await ctx.send("Musisz być na kanale głosowym!")
+        await ctx.send("Musisz być na kanale głosowym.")
 
-
-@bot.command(name='leave')
+@bot.command()
 async def leave(ctx):
     if ctx.voice_client:
         await ctx.voice_client.disconnect()
-        await ctx.send("Rozłączono.")
-    else:
-        await ctx.send("Nie jestem na żadnym kanale głosowym.")
 
+@bot.command()
+async def play(ctx, *, query):
+    vc = ctx.voice_client
+    if not vc:
+        if ctx.author.voice:
+            channel = ctx.author.voice.channel
+            vc = await channel.connect()
+        else:
+            await ctx.send("Dołącz do kanału głosowego.")
+            return
 
-@bot.command(name='play')
-async def play(ctx, *, search: str):
-    if not ctx.voice_client:
-        await ctx.invoke(join)
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = ydl.extract_info(query, download=False)
+            url = info['url']
+            title = info.get('title', 'Nieznany tytuł')
+        except Exception as e:
+            await ctx.send("Błąd przy pobieraniu: " + str(e))
+            return
 
-    with yt_dlp.YoutubeDL(yt_opts) as ydl:
-        info = ydl.extract_info(search, download=False)
-        if 'entries' in info:
-            info = info['entries'][0]
-        url = info['url']
+    vc.stop()
+    vc.play(discord.FFmpegPCMAudio(url, **ffmpeg_options))
+    await ctx.send(f"▶️ Odtwarzam: {title}")
 
-    source = await discord.FFmpegOpusAudio.from_probe(url, **FFMPEG_OPTIONS)
-    ctx.voice_client.stop()
-    ctx.voice_client.play(source, after=lambda e: print(f'Odtwarzanie zakończone: {e}'))
-
-    await ctx.send(f"▶️ Odtwarzam: {info.get('title')}")
-
-
-@bot.command(name='stop')
+@bot.command()
 async def stop(ctx):
     if ctx.voice_client:
         ctx.voice_client.stop()
-        await ctx.send("⏹️ Zatrzymano odtwarzanie.")
-    else:
-        await ctx.send("Nie odtwarzam niczego.")
 
-
-# Wklej tutaj swój token bota
 bot.run('TWOJ_TOKEN_BOTA')
 
